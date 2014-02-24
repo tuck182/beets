@@ -1353,7 +1353,7 @@ default_commands.append(modify_cmd)
 
 # move: Move/copy files to the library or a new base directory.
 
-def move_items(lib, dest, query, copy, album):
+def move_items(lib, dest, query, copy, album, pretend):
     """Moves or copies items to a new base directory, given by dest. If
     dest is None, then the library's base directory is used, making the
     command "consolidate" files.
@@ -1367,9 +1367,11 @@ def move_items(lib, dest, query, copy, album):
     for obj in objs:
         log.debug(u'moving: {0}'.format(util.displayable_path(obj.path)))
 
-        obj.move(copy, basedir=dest)
-        obj.store()
-
+        _ = obj.move(copy, basedir=dest, pretend=pretend)
+        if pretend:
+            print_("{} {}: {} -> {}".format(action, entity, obj.path, _))
+        else:
+          obj.store()
 
 def move_func(lib, opts, args):
     dest = opts.dest
@@ -1378,8 +1380,7 @@ def move_func(lib, opts, args):
         if not os.path.isdir(dest):
             raise ui.UserError('no such directory: %s' % dest)
 
-    move_items(lib, dest, decargs(args), opts.copy, opts.album)
-
+    move_items(lib, dest, decargs(args), opts.copy, opts.album, opts.pretend)
 
 move_cmd = ui.Subcommand(
     'move', help='move or copy items', aliases=('mv',)
@@ -1392,13 +1393,16 @@ move_cmd.parser.add_option(
     '-c', '--copy', default=False, action='store_true',
     help='copy instead of moving'
 )
+move_cmd.parser.add_option('-p', '--pretend', default=False,
+    action='store_true',
+    help='show how files would be moved, but don\'t touch anything'
+)
 move_cmd.parser.add_option(
     '-a', '--album', default=False, action='store_true',
     help='match whole albums instead of tracks'
 )
 move_cmd.func = move_func
 default_commands.append(move_cmd)
-
 
 # write: Write tags into files.
 
