@@ -178,6 +178,10 @@ class Model(object):
         # Assign value and possibly mark as dirty.
         old_value = source.get(key)
         source[key] = value
+        if type(value) is float:
+            old_value=float(old_value)
+        if type(value)is int:
+            old_value=int(old_value)
         if old_value != value:
             self._dirty.add(key)
 
