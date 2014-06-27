@@ -178,9 +178,9 @@ class Model(object):
         # Assign value and possibly mark as dirty.
         old_value = source.get(key)
         source[key] = value
-        if type(value) is float and old_value is not None:
+        if type(value) is float and old_value is not None and old_value!='':
             old_value=float(old_value)
-        if type(value)is int and old_value is not None:
+        if type(value)is int and old_value is not None and old_value!='':
             old_value=int(old_value)
         if old_value != value:
             self._dirty.add(key)
