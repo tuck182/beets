@@ -184,6 +184,13 @@ def item_file(item_id):
     response.headers['Content-Length'] = os.path.getsize(item.path)
     return response
 
+@app.route('/item/<int:item_id>/preview')
+def item_preview(item_id):
+    item = g.lib.get_item(item_id)
+    response = flask.send_file(item.path, as_attachment=True,
+                               attachment_filename=os.path.basename(item.path) + '-preview.mp3')
+    response.headers['Content-Length'] = os.path.getsize(item.path + '-preview.mp3')
+    return response
 
 @app.route('/item/query/<query:queries>')
 @resource_query('items')
