@@ -18,9 +18,10 @@ import time
 import os
 from collections import defaultdict
 import threading
-import sqlite3
+import psycopg2
 import contextlib
 import collections
+from psycopg2.extras import RealDictCursor
 
 import beets
 from beets.util.functemplate import Template
@@ -73,6 +74,8 @@ class FormattedMapping(collections.Mapping):
 
         return value
 
+psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
+psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # Abstract base for model classes.
 
@@ -235,6 +238,10 @@ class Model(object):
         # Assign value and possibly mark as dirty.
         old_value = source.get(key)
         source[key] = value
+        if type(value) is float and old_value is not None and old_value!='':
+            old_value=float(old_value)
+        if type(value)is int and old_value is not None and old_value!='':
+            old_value=int(old_value)
         if old_value != value:
             self._dirty.add(key)
 
@@ -333,7 +340,7 @@ class Model(object):
         for key in self._fields:
             if key != 'id' and key in self._dirty:
                 self._dirty.remove(key)
-                assignments.append(key + '=?')
+                assignments.append(key + '=%s')
                 value = self._type(key).to_sql(self[key])
                 subvars.append(value)
         assignments = ','.join(assignments)
@@ -341,7 +348,7 @@ class Model(object):
         with self._db.transaction() as tx:
             # Main table update.
             if assignments:
-                query = 'UPDATE {0} SET {1} WHERE id=?'.format(
+                query = 'UPDATE {0} SET {1} WHERE id=%s'.format(
                     self._table, assignments
                 )
                 subvars.append(self.id)
@@ -354,7 +361,7 @@ class Model(object):
                     tx.mutate(
                         'INSERT INTO {0} '
                         '(entity_id, key, value) '
-                        'VALUES (?, ?, ?);'.format(self._flex_table),
+                        'VALUES (%s, %s, %s) RETURNING entity_id;'.format(self._flex_table),
                         (self.id, key, value),
                     )
 
@@ -362,7 +369,7 @@ class Model(object):
             for key in self._dirty:
                 tx.mutate(
                     'DELETE FROM {0} '
-                    'WHERE entity_id=? AND key=?'.format(self._flex_table),
+                    'WHERE entity_id=%s AND key=%s'.format(self._flex_table),
                     (self.id, key)
                 )
 
@@ -385,11 +392,11 @@ class Model(object):
         self._check_db()
         with self._db.transaction() as tx:
             tx.mutate(
-                'DELETE FROM {0} WHERE id=?'.format(self._table),
+                'DELETE FROM {0} WHERE id=%s'.format(self._table),
                 (self.id,)
             )
             tx.mutate(
-                'DELETE FROM {0} WHERE entity_id=?'.format(self._flex_table),
+                'DELETE FROM {0} WHERE entity_id=%s'.format(self._flex_table),
                 (self.id,)
             )
 
@@ -407,9 +414,9 @@ class Model(object):
 
         with self._db.transaction() as tx:
             new_id = tx.mutate(
-                'INSERT INTO {0} DEFAULT VALUES'.format(self._table)
+                'INSERT INTO {0} DEFAULT VALUES RETURNING id'.format(self._table)
             )
-            self.id = new_id
+	    self.id = new_id['id']
             self.added = time.time()
 
             # Mark every non-null field as dirty and store.
@@ -536,7 +543,7 @@ class Results(object):
         # Get the flexible attributes for the object.
         with self.db.transaction() as tx:
             flex_rows = tx.query(
-                'SELECT * FROM {0} WHERE entity_id=?'.format(
+                    'SELECT * FROM {0} WHERE entity_id=%s'.format(
                     self.model_class._flex_table
                 ),
                 (row['id'],)
@@ -639,19 +646,22 @@ class Transaction(object):
         """Execute an SQL statement with substitution values and return
         a list of rows from the database.
         """
-        cursor = self.db._connection().execute(statement, subvals)
-        return cursor.fetchall()
+	cursor = self.db._connection().cursor()
+	cursor.execute(statement,subvals)
+	return (cursor.fetchall() if cursor.rowcount>0 else [])
 
     def mutate(self, statement, subvals=()):
         """Execute an SQL statement with substitution values and return
         the row ID of the last affected row.
         """
-        cursor = self.db._connection().execute(statement, subvals)
-        return cursor.lastrowid
+        cursor = self.db._connection().cursor()
+	cursor.execute(statement, subvals)
+	result = (cursor.fetchone() if "UPDATE" not in statement and "DELETE" not in statement and cursor.rowcount>0 else None)
+	return result
 
     def script(self, statements):
         """Execute a string containing multiple SQL statements."""
-        self.db._connection().executescript(statements)
+	self.db._connection().cursor().execute(statements)
 
 
 class Database(object):
@@ -699,13 +709,11 @@ class Database(object):
                 return self._connections[thread_id]
             else:
                 # Make a new connection.
-                conn = sqlite3.connect(
-                    self.path,
-                    timeout=beets.config['timeout'].as_number(),
+                conn = psycopg2.extras.RealDictConnection("host=localhost port=5432 dbname=beetsprod user=beetsprod password=beetsprod",
                 )
 
                 # Access SELECT results like dictionaries.
-                conn.row_factory = sqlite3.Row
+                # conn.row_factory = sqlite3.Row
 
                 self._connections[thread_id] = conn
                 return conn
@@ -734,9 +742,8 @@ class Database(object):
         """
         # Get current schema.
         with self.transaction() as tx:
-            rows = tx.query('PRAGMA table_info(%s)' % table)
-        current_fields = set([row[1] for row in rows])
-
+            rows = tx.query("select -1 + ROW_NUMBER() over (order by column_name),column_name,data_type from INFORMATION_SCHEMA.COLUMNS where table_name = '%s'" % table)
+	current_fields = set([row['column_name'] for row in rows])
         field_names = set(fields.keys())
         if current_fields.issuperset(field_names):
             # Table exists and has all the required columns.
@@ -768,16 +775,9 @@ class Database(object):
         for the given entity (if they don't exist).
         """
         with self.transaction() as tx:
-            tx.script("""
-                CREATE TABLE IF NOT EXISTS {0} (
-                    id INTEGER PRIMARY KEY,
-                    entity_id INTEGER,
-                    key TEXT,
-                    value TEXT,
-                    UNIQUE(entity_id, key) ON CONFLICT REPLACE);
-                CREATE INDEX IF NOT EXISTS {0}_by_entity
-                    ON {0} (entity_id);
-                """.format(flex_table))
+	    rows = tx.query("SELECT * FROM information_schema.tables WHERE table_name = '%s'" % flex_table)
+            if len(rows)==0:
+                tx.script("CREATE TABLE {0} (id SERIAL PRIMARY KEY,entity_id INTEGER,key TEXT,value TEXT,UNIQUE(entity_id, key));CREATE INDEX {0}_by_entity ON {0} (entity_id);".format(flex_table))
 
     # Querying.
 
@@ -791,10 +791,10 @@ class Database(object):
         sort = sort or NullSort()  # Unsorted.
         where, subvals = query.clause()
         order_by = sort.order_clause()
-
+	where = "(1=1)" if where=="(1)" else where
         sql = ("SELECT * FROM {0} WHERE {1} {2}").format(
             model_cls._table,
-            where or '1',
+            where or '1=1',
             "ORDER BY {0}".format(order_by) if order_by else '',
         )
 

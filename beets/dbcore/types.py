@@ -156,7 +156,7 @@ class Id(Integer):
 
     def __init__(self, primary=True):
         if primary:
-            self.sql = u'INTEGER PRIMARY KEY'
+            self.sql = u'SERIAL PRIMARY KEY'
 
 
 class Float(Type):
@@ -186,7 +186,7 @@ class String(Type):
 class Boolean(Type):
     """A boolean type.
     """
-    sql = u'INTEGER'
+    sql = u'BOOLEAN'
     query = query.BooleanQuery
     model_type = bool
 

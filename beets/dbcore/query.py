@@ -76,7 +76,7 @@ class FieldQuery(Query):
 class MatchQuery(FieldQuery):
     """A query that looks for exact matches in an item field."""
     def col_clause(self):
-        return self.field + " = ?", [self.pattern]
+        return self.field + " = %s", [self.pattern]
 
     @classmethod
     def value_match(cls, pattern, value):
@@ -127,7 +127,7 @@ class SubstringQuery(StringFieldQuery):
                        .replace('%', '\\%')
                        .replace('_', '\\_'))
         search = '%' + pattern + '%'
-        clause = self.field + " like ? escape '\\'"
+        clause = self.field + " like %s "
         subvals = [search]
         return clause, subvals
 
@@ -184,7 +184,7 @@ class BytesQuery(MatchQuery):
             self.pattern = bytes(self.pattern)
 
     def col_clause(self):
-        return self.field + " = ?", [self.buf_pattern]
+        return self.field + " = %s", [self.buf_pattern]
 
 
 class NumericQuery(FieldQuery):
@@ -238,15 +238,15 @@ class NumericQuery(FieldQuery):
 
     def col_clause(self):
         if self.point is not None:
-            return self.field + '=?', (self.point,)
+            return self.field + '=%s', (self.point,)
         else:
             if self.rangemin is not None and self.rangemax is not None:
-                return (u'{0} >= ? AND {0} <= ?'.format(self.field),
+                return (u'{0} >= %s AND {0} <= %s'.format(self.field),
                         (self.rangemin, self.rangemax))
             elif self.rangemin is not None:
-                return u'{0} >= ?'.format(self.field), (self.rangemin,)
+                return u'{0} >= %s'.format(self.field), (self.rangemin,)
             elif self.rangemax is not None:
-                return u'{0} <= ?'.format(self.field), (self.rangemax,)
+                return u'{0} <= %s'.format(self.field), (self.rangemax,)
             else:
                 return '1', ()
 

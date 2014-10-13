@@ -84,7 +84,7 @@ class DateType(types.Float):
 
 
 class PathType(types.Type):
-    sql = u'BLOB'
+    sql = u'BYTEA'
     query = PathQuery
     model_type = bytes
 

@@ -71,6 +71,16 @@ shockingly simple if you know a little Python.
 .. _lyrics: http://beets.readthedocs.org/page/plugins/lyrics.html
 .. _MusicBrainz: http://musicbrainz.org/
 
+Database Setup
+--------------
+1. Create a database-user e.g. "beets" for your beets database "beets" and configure the server in db.py under "def _connection(self):"
+...
+     # Make a new connection.
+     conn = psycopg2.extras.RealDictConnection("host=localhost port=5432 dbname=beets user=beets password=secret",
+
+2. Run beets as usual. 
+
+
 Read More
 ---------
 
